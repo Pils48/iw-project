@@ -3,10 +3,10 @@ import numpy as np
 import sys, time
 import socket
 
-HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
+HOST = '0.0.0.0'  # Standard loopback interface address (localhost)
 PORT = 65432        # Port to listen on (non-privileged ports are > 1023)
-BUFFER_SIZE = 1024
-GRAPHS_WIDTH = 20
+BUFFER_SIZE = 4096
+GRAPHS_WIDTH = 30
 
 windows = {}
 ADD_PLOT_CMD = "ADD_PLOT"
@@ -32,9 +32,10 @@ def update_plot(name, data, timestamp):
     if points_count > GRAPHS_WIDTH:
         x_data = np.delete(x_data, 0)
         y_data = np.delete(y_data, 0)
-        current_axes.clear()
-        current_axes.plot(x_data, y_data)
-    plt.pause(1e-2)
+        for line in current_axes.get_lines():
+            line.remove()
+        current_axes.plot(x_data, y_data, 'b')
+    plt.pause(1e-6)
 
 
 def process_msg(conn):
@@ -58,8 +59,12 @@ def start_diagrams(conn):
 def add_new_plot(name):
     """Add a subplot to figure for visualization"""
     fig = plt.figure()
+    fig.suptitle(name, fontsize=16)
     ax = plt.axes()
     fig.add_axes(ax)
+    ax.grid(color='k', linestyle='-', linewidth=0.2)
+    ax.set_alpha(1)
+    ax.set_xlabel("time (s)")
     windows[name] = fig
     ax.set_autoscale_on(True)
     ax.plot([], 'b')
