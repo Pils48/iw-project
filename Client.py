@@ -2,6 +2,8 @@ import numpy as np
 import socket
 import time
 import RPi.GPIO as GPIO
+import sys
+import subprocess
 from os import listdir, system
 
 
@@ -14,6 +16,8 @@ PORT = 65432        # The port used by the server
 
 system('modprobe w1-gpio')
 system('modprobe w1_therm')
+
+button_click_counter = 0
 
 
 def get_temperature_sensors():
@@ -61,36 +65,119 @@ def read_temperature(device, name):
 
     # Check that the temperature is not invalid
     if temperature != -1:
-        temperature_celsius = round(float(temperature) / 1000.0, 1)
+        temperature_celsius = round(float(temperature) / 1000.0, 2)
         
     return temperature_celsius
 
 
-bytes_counter = 0
+def button_callback(channel, initial_timestamp):
+    print("Handling button interaption")
+    global heater_PWM
+    global button_click_counter
+    button_click_counter += 1
+    if button_click_counter % 2 == 0:
+        heater_PWM.ChangeDutyCycle(100)
+        for level in range(6):
+            timestamp = time.time() - initial_timestamp
+            s.sendall(bytes("DATA CPU_POWER %f %f\n" % (10 / 5 * level, timestamp), 'utf-8'))
+            time.sleep(0.003)
+    elif button_click_counter % 2 == 1:
+        heater_PWM.ChangeDutyCycle(0)
+        for level in range(5, -1, -1):
+            timestamp = time.time() - initial_timestamp
+            s.sendall(bytes("DATA CPU_POWER %f %f\n" % (10 / 5 * level, timestamp), 'utf-8'))
+            time.sleep(0.003)
+
+
+def set_resolution(sensorpath, resolution: int, persist: bool = False):
+    if not 9 <= resolution <= 12:
+            print(
+                "The given sensor resolution '{0}' is out of range (9-12)".format(
+                    resolution
+                )
+            )
+            return False
+    exitcode = subprocess.call(
+            "echo {0} > {1}".format(resolution, sensorpath), shell=True
+        )
+    if exitcode != 0:
+        print(
+            "Failed to change resolution to {0} bit. "
+            "You might have to be root to change the resolution".format(resolution)
+        )
+        return False
+
+    if persist:
+        exitcode = subprocess.call(
+            "echo 0 > {0}".format(sensorpath), shell=True
+        )
+        if exitcode != 0:
+            print(
+                "Failed to write resolution configuration to sensor EEPROM"
+            )
+        return False
+    return True
+            
+            
+def get_resolution(sensor):
+    data = raw_temperature(sensor)
+    print(data)
+    
 
 GPIO.setmode(GPIO.BOARD)
 
+# Fan setup
 GPIO.setup(12, GPIO.OUT)  # Set GPIO pin 12 to output mode.
-FAN_PWM = GPIO.PWM(12, 100)   # Initialize PWM on pwmPin 100Hz frequency
+fan_PWM = GPIO.PWM(12, 25000)  
 
-duty_cycle =0                               # set dc variable to 0 for 0%
-FAN_PWM.start(duty_cycle)                      # Start PWM with 0% duty cycle
+# Button setup
+GPIO.setwarnings(False) # Ignore warning for now
+GPIO.setup(10, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) # Set pin 10 to be an input pin and set initial value to be pulled low (off)
+
+# Heater setup
+GPIO.setup(13, GPIO.OUT)
+heater_PWM = GPIO.PWM(13, 100)   # Initialize PWM on pwmPin 100Hz frequency
+
+# Peltier setup
+GPIO.setup(15, GPIO.OUT)
+peltier_PWM = GPIO.PWM(15, 100)
+
+initial_button_state = GPIO.input(10)
+if initial_button_state == 1:
+    button_click_counter += 1
+
+# PWMs start
+fan_PWM.start(100)                      # Start PWM with 0% duty cycle
+peltier_PWM.start(0)
+heater_PWM.start(100)
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((IP, PORT))
-    s.sendall(bytes("ADD_PLOT TEMPERATURE_0\n", 'utf-8'))
-    s.sendall(bytes("ADD_PLOT TEMPERATURE_1\n", 'utf-8'))
+    s.sendall(bytes("ADD_PLOT TEMPERATURE_HIGH\n", 'utf-8'))
+    s.sendall(bytes("ADD_PLOT TEMPERATURE_LOW\n", 'utf-8'))
     s.sendall(bytes("ADD_PLOT FAN_SPEED\n", 'utf-8'))
+    s.sendall(bytes("ADD_PLOT CPU_POWER\n", 'utf-8'))
     initial_timestamp = time.time()
+    GPIO.add_event_detect(10, GPIO.BOTH, callback=lambda channel: button_callback(channel, initial_timestamp), bouncetime=500) # Setup event on pin 10 rising edge
+    devices = get_temperature_sensors()
+    for device in devices:
+        if not set_resolution(DEVICE_FOLDER + device + DEVICE_SUFFIX, 11):
+            print("Fail to set resolution!")
     while True:
-        devices = get_temperature_sensors()
         timestamp = time.time() - initial_timestamp
         for idx in range(0, len(devices)):
             temperature = read_temperature(devices[idx], "Thermometer_%d" % idx)
             if idx == 0:
-                step = temperature % 16 # 5 steps control from 20 to 100 degrees
-                FAN_PWM.ChangeDutyCycle((step + 1) * 20)
-            print("Thermometer_%d value: %f" % (idx, temperature))
-            s.sendall(bytes("DATA TEMPERATURE_%d %f %f\n" % (idx, temperature, timestamp), 'utf-8'))
-    
-        
+                # Control fan
+                step = temperature / 10 # 5 steps control from 20 to 100 degrees
+                fan_PWM.ChangeDutyCycle(step / 10 * 100)
+                s.sendall(bytes("DATA FAN_SPEED %f %f\n" % (3000 / 10 * step, timestamp), 'utf-8'))
+                # Temperature package
+                print("TEMPERATURE_LOW value: %f" % (temperature))
+                s.sendall(bytes("DATA TEMPERATURE_LOW %f %f\n" % (temperature, timestamp), 'utf-8'))
+            elif idx == 1:
+                print("TEMPERATURE_HIGH value: %f" % (temperature))
+                s.sendall(bytes("DATA TEMPERATURE_HIGH %f %f\n" % (temperature, timestamp), 'utf-8'))
+            else:
+                s.sendall(bytes("DATA TEMPERATURE %f %f\n" % (temperature, timestamp), 'utf-8'))
+
