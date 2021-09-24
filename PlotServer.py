@@ -1,16 +1,20 @@
 from matplotlib import pyplot as plt
 import numpy as np
+import datetime
 import sys, time
 import socket
 
 HOST = '0.0.0.0'  # Standard loopback interface address (localhost)
-PORT = 65432        # Port to listen on (non-privileged ports are > 1023)
+PORT = 65432        # Port to liste00n on (non-privileged ports are > 1023)
 BUFFER_SIZE = 4096
-GRAPHS_WIDTH = 30
+GRAPHS_WIDTH = 20
 
 windows = {}
 ADD_PLOT_CMD = "ADD_PLOT"
 DATA_CMD = "DATA"
+
+# dump_file = open(f"{datetime.datetime.now()}_data.txt", 'w')
+dump_file = open(f"logs/{datetime.datetime.today().strftime('%Y-%m-%d-%H_%M_%S')}_data.txt", 'a')
 
 
 def update_plot(name, data, timestamp):
@@ -22,7 +26,7 @@ def update_plot(name, data, timestamp):
     x_data, y_data = current_line.get_xdata(), current_line.get_ydata()
     x_data = np.append(x_data, timestamp)
     y_data = np.append(y_data, data)
-    current_axes.plot(x_data, y_data, 'b')
+    # current_axes.plot(x_data, y_data, 'b')
     current_line.set_xdata(x_data)
     current_line.set_ydata(y_data)
     current_axes.relim()
@@ -34,8 +38,11 @@ def update_plot(name, data, timestamp):
         y_data = np.delete(y_data, 0)
         for line in current_axes.get_lines():
             line.remove()
-        current_axes.plot(x_data, y_data, 'b')
-    plt.pause(1e-6)
+        current_line.set_xdata(x_data)
+        current_line.set_ydata(y_data)
+        current_axes.add_line(current_line)
+        current_axes.set_xlim(x_data[0] - 1, x_data[len(x_data) - 1] + 1)
+    plt.pause(1e-10)
 
 
 def process_msg(conn):
@@ -45,8 +52,10 @@ def process_msg(conn):
     for msg in msgs:
         commands = msg.split()
         if commands[0] == ADD_PLOT_CMD:
-            add_new_plot(commands[1])
+            add_new_plot(commands[1], commands[2], commands[3], commands[4])
         elif commands[0] == DATA_CMD:
+            dump_file.write(msg + "\n")
+            dump_file.flush()
             update_plot(commands[1], commands[2], commands[3])
 
 
@@ -56,17 +65,23 @@ def start_diagrams(conn):
         process_msg(conn)
 
 
-def add_new_plot(name):
+def add_new_plot(name, lower_bound, upper_bound, xticks_number):
     """Add a subplot to figure for visualization"""
+    lower_bound = int(lower_bound)
+    upper_bound = int(upper_bound)
     fig = plt.figure()
+    fig.canvas.set_window_title(name)
     fig.suptitle(name, fontsize=16)
     ax = plt.axes()
     fig.add_axes(ax)
-    ax.grid(color='k', linestyle='-', linewidth=0.2)
     ax.set_alpha(1)
     ax.set_xlabel("time (s)")
+    ax.set_xlim(0, GRAPHS_WIDTH)
+    ax.set_yticks(np.linspace(lower_bound, upper_bound, int(xticks_number)))
+    ax.grid(color='k', linestyle='-', linewidth=0.2)
+    ax.set_ylim(lower_bound, upper_bound)
     windows[name] = fig
-    ax.set_autoscale_on(True)
+    ax.set_autoscale_on(False)
     ax.plot([], 'b')
 
 
@@ -82,6 +97,9 @@ def start_server(ip, port):
 
 
 if __name__ == "__main__":
-    start_server(HOST, PORT)
-
+    try:
+        start_server(HOST, PORT)
+    except KeyboardInterrupt:
+        print('Interrupted')
+        dump_file.close()
 
