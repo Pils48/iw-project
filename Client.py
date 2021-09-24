@@ -72,21 +72,22 @@ def read_temperature(device, name):
 
 def button_callback(channel, initial_timestamp):
     print("Handling button interaption")
-    global heater_PWM
+#     global heater_PWM
     global button_click_counter
     button_click_counter += 1
+    GPIO.setup(19, GPIO.OUT)
     if button_click_counter % 2 == 0:
-        heater_PWM.ChangeDutyCycle(100)
+        GPIO.output(19, GPIO.HIGH)
         for level in range(6):
             timestamp = time.time() - initial_timestamp
             s.sendall(bytes("DATA CPU_POWER %f %f\n" % (10 / 5 * level, timestamp), 'utf-8'))
-            time.sleep(0.003)
+#             time.sleep(0.003)
     elif button_click_counter % 2 == 1:
-        heater_PWM.ChangeDutyCycle(0)
+        GPIO.output(19, GPIO.LOW)
         for level in range(5, -1, -1):
             timestamp = time.time() - initial_timestamp
             s.sendall(bytes("DATA CPU_POWER %f %f\n" % (10 / 5 * level, timestamp), 'utf-8'))
-            time.sleep(0.003)
+#             time.sleep(0.003)
 
 
 def set_resolution(sensorpath, resolution: int, persist: bool = False):
@@ -124,9 +125,16 @@ def get_resolution(sensor):
     print(data)
     
 
+def calculate_fan_speed(temperatures, timestamps, threshold, steps_number = 10):
+    if abs(temperatures[1] - temperatures[0]) / (timestamps[1] - timestamps[0]) > threshold:
+        return 3000
+    return 3000 * step / 10
+
+
 GPIO.setmode(GPIO.BOARD)
 
 # Fan setup
+GPIO.setwarnings(False)
 GPIO.setup(12, GPIO.OUT)  # Set GPIO pin 12 to output mode.
 fan_PWM = GPIO.PWM(12, 25000)  
 
@@ -134,50 +142,57 @@ fan_PWM = GPIO.PWM(12, 25000)
 GPIO.setwarnings(False) # Ignore warning for now
 GPIO.setup(10, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) # Set pin 10 to be an input pin and set initial value to be pulled low (off)
 
-# Heater setup
-GPIO.setup(13, GPIO.OUT)
-heater_PWM = GPIO.PWM(13, 100)   # Initialize PWM on pwmPin 100Hz frequency
-
 # Peltier setup
-GPIO.setup(15, GPIO.OUT)
-peltier_PWM = GPIO.PWM(15, 100)
+GPIO.setup(13, GPIO.OUT)
+peltier_PWM = GPIO.PWM(13, 100)   # Initialize PWM on pwmPin 100Hz frequency
+  
+# Peltier setup
+GPIO.setup(19, GPIO.OUT)
+GPIO.output(19, GPIO.HIGH)
 
 initial_button_state = GPIO.input(10)
 if initial_button_state == 1:
     button_click_counter += 1
 
 # PWMs start
-fan_PWM.start(100)                      # Start PWM with 0% duty cycle
-peltier_PWM.start(0)
-heater_PWM.start(100)
+fan_PWM.start(0)                      # Start PWM with 0% duty cycle
+peltier_PWM.start(100)
+
+temperatures = [0, 0]
+timemstamps = [0, 0]
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((IP, PORT))
-    s.sendall(bytes("ADD_PLOT TEMPERATURE_HIGH\n", 'utf-8'))
-    s.sendall(bytes("ADD_PLOT TEMPERATURE_LOW\n", 'utf-8'))
-    s.sendall(bytes("ADD_PLOT FAN_SPEED\n", 'utf-8'))
-    s.sendall(bytes("ADD_PLOT CPU_POWER\n", 'utf-8'))
+    s.sendall(bytes("ADD_PLOT TEMPERATURE_HOT 0 100 21\n", 'utf-8'))
+    s.sendall(bytes("ADD_PLOT TEMPERATURE_COLD 0 100 21\n", 'utf-8'))
+    s.sendall(bytes("ADD_PLOT FAN_SPEED 0 3000 11\n", 'utf-8'))
+    s.sendall(bytes("ADD_PLOT CPU_POWER 0 60 2\n", 'utf-8'))
     initial_timestamp = time.time()
-    GPIO.add_event_detect(10, GPIO.BOTH, callback=lambda channel: button_callback(channel, initial_timestamp), bouncetime=500) # Setup event on pin 10 rising edge
+    GPIO.add_event_detect(10, GPIO.BOTH, callback=lambda channel: button_callback(channel, initial_timestamp), bouncetime=200) # Setup event on pin 10 rising edge
     devices = get_temperature_sensors()
     for device in devices:
-        if not set_resolution(DEVICE_FOLDER + device + DEVICE_SUFFIX, 11):
+        if not set_resolution(DEVICE_FOLDER + device + DEVICE_SUFFIX, 9):
             print("Fail to set resolution!")
     while True:
         timestamp = time.time() - initial_timestamp
         for idx in range(0, len(devices)):
             temperature = read_temperature(devices[idx], "Thermometer_%d" % idx)
             if idx == 0:
-                # Control fan
-                step = temperature / 10 # 5 steps control from 20 to 100 degrees
-                fan_PWM.ChangeDutyCycle(step / 10 * 100)
-                s.sendall(bytes("DATA FAN_SPEED %f %f\n" % (3000 / 10 * step, timestamp), 'utf-8'))
                 # Temperature package
-                print("TEMPERATURE_LOW value: %f" % (temperature))
-                s.sendall(bytes("DATA TEMPERATURE_LOW %f %f\n" % (temperature, timestamp), 'utf-8'))
+                print("TEMPERATURE_COLD value: %f" % (temperature))
+                s.sendall(bytes("DATA TEMPERATURE_COLD %f %f\n" % (temperature, timestamp), 'utf-8'))
             elif idx == 1:
-                print("TEMPERATURE_HIGH value: %f" % (temperature))
-                s.sendall(bytes("DATA TEMPERATURE_HIGH %f %f\n" % (temperature, timestamp), 'utf-8'))
+                temperatures[0], temperatures[1] = temperatures[1], temperature
+                timestamps[0], timestamps[1] = timestamps[1], timestamps
+                print(temperatures)
+                print(timestamps)
+                # Control fan
+                fan_speed = calculate_fan_speed(temperatures, timestamps, 2) # 5 steps control from 20 to 100 degrees
+                fan_PWM.ChangeDutyCycle(fan_speed / 3000 * 100)
+                s.sendall(bytes("DATA FAN_SPEED %f %f\n" % (fan_speed, timestamp), 'utf-8'))
+                
+                print("TEMPERATURE_HOT value: %f" % (temperature))
+                s.sendall(bytes("DATA TEMPERATURE_HOT %f %f\n" % (temperature, timestamp), 'utf-8'))
             else:
                 s.sendall(bytes("DATA TEMPERATURE %f %f\n" % (temperature, timestamp), 'utf-8'))
 
