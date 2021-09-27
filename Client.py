@@ -145,7 +145,7 @@ def calculate_control_parameters(temperatures_hot, temperature_cold, timestamps,
         control_process_start = 0
     else:
         if temperatures_hot[1] > T_CRITICAL:
-            peltier_voltage = functions.U_static(CPU_power, temperatures_hot[1], temperature_cold)
+            peltier_voltage = functions.U_static(CPU_power, temperatures_hot[1] + 273.15, temperature_cold + 273.15)
             if peltier_voltage > 12:
                 peltier_voltage = 12
         print(f"Updated peltier voltage: {peltier_voltage}")
