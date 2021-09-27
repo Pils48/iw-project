@@ -85,14 +85,12 @@ def button_callback(channel, initial_timestamp):
             timestamp = time.time() - initial_timestamp
             CPU_power = 60
             s.sendall(bytes("DATA CPU_POWER %f %f\n" % (60 / 5 * level, timestamp), 'utf-8'))
-#             time.sleep(0.003)
     elif button_click_counter % 2 == 1:
         GPIO.output(19, GPIO.LOW)
         for level in range(5, -1, -1):
             timestamp = time.time() - initial_timestamp
             CPU_power = 0
             s.sendall(bytes("DATA CPU_POWER %f %f\n" % (60 / 5 * level, timestamp), 'utf-8'))
-#             time.sleep(0.003)
 
 
 def set_resolution(sensorpath, resolution: int, persist: bool = False):
@@ -189,12 +187,15 @@ if initial_button_state == 1:
 fan_PWM.start(0)                      # Start PWM with 0% duty cycle
 peltier_PWM.start(10)
 
-temperatures_hot = [24, 0]
+devices = get_temperature_sensors()
+
+temperatures_hot = [0, read_temperature(devices[1], "Thermometer_%d" % 1)]
 temperature_cold = 0
 timestamps = [0, 0]
 control_process_start = 0
 
 CPU_power = 0
+
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((IP, PORT))
@@ -204,7 +205,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.sendall(bytes("ADD_PLOT CPU_POWER 0 60 2\n", 'utf-8'))
     initial_timestamp = time.time()
     GPIO.add_event_detect(10, GPIO.BOTH, callback=lambda channel: button_callback(channel, initial_timestamp), bouncetime=200) # Setup event on pin 10 rising edge
-    devices = get_temperature_sensors()
+
     for device in devices:
         if not set_resolution(DEVICE_FOLDER + device + DEVICE_SUFFIX, 11):
             print("Fail to set resolution!")
