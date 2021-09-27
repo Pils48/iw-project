@@ -12,7 +12,7 @@ DEVICE_FOLDER = "/sys/bus/w1/devices/"
 DEVICE_SUFFIX = "/w1_slave"
 WAIT_INTERVAL = 0.005
 
-T_CRITICAL = 40
+T_CRITICAL = 30
 CONTROL_TIME_FAN = 30
 CONTROL_TIME_PELTIER = 30
 
@@ -135,7 +135,7 @@ def calculate_control_parameters(temperatures_hot, temperature_heatsink, timesta
     fan_speed = 0
     peltier_voltage = 0
     current_control_time = time.time() - control_process_start
-    if abs(temperatures_hot[1] - temperatures_hot[0]) / (timestamps[1] - timestamps[0]) > threshold and current_control_time > CONTROL_TIME:
+    if abs(temperatures_hot[1] - temperatures_hot[0]) / (timestamps[1] - timestamps[0]) > threshold and current_control_time > CONTROL_TIME_FAN:
         print("Temperature spikes detected")
         control_process_start = time.time()
         fan_speed = 3000
@@ -147,6 +147,7 @@ def calculate_control_parameters(temperatures_hot, temperature_heatsink, timesta
 
     if temperatures_hot[1] > T_CRITICAL:
         peltier_voltage = functions.U_static(CPU_power, temperatures_hot[1] + 273.15, temperature_heatsink + 273.15)
+        fan_speed = 3000
         if peltier_voltage > 12:
             peltier_voltage = 12
         print(f"Updated peltier voltage: {peltier_voltage}")
