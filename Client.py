@@ -12,6 +12,8 @@ DEVICE_FOLDER = "/sys/bus/w1/devices/"
 DEVICE_SUFFIX = "/w1_slave"
 WAIT_INTERVAL = 0.005
 
+
+Q_C0 = 12.16**2 / 15.6
 T_CRITICAL = 30
 CONTROL_TIME_FAN = 30
 CONTROL_TIME_PELTIER = 30
@@ -146,8 +148,8 @@ def calculate_control_parameters(temperatures_hot, temperature_heatsink, timesta
         control_process_start = 0
 
     if temperatures_hot[1] > T_CRITICAL:
-        # peltier_voltage = functions.U_static(20, temperatures_hot[1] + 273.15, temperature_heatsink + 273.15)
-        peltier_voltage = 12
+        peltier_voltage = functions.U_static(Q_C0, temperatures_hot[1] + 273.15, temperature_heatsink + 273.15)
+        # peltier_voltage = 12
         fan_speed = 3000
         if peltier_voltage > 12:
             peltier_voltage = 12
