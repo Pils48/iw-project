@@ -86,14 +86,14 @@ def button_callback(channel, initial_timestamp):
         GPIO.output(19, GPIO.HIGH)
         for level in range(6):
             timestamp = time.time() - initial_timestamp
-            CPU_power = 60
-            s.sendall(bytes("DATA CPU_POWER %f %f\n" % (60 / 5 * level, timestamp), 'utf-8'))
+            CPU_power = 40
+            s.sendall(bytes("DATA CPU_POWER %f %f\n" % (40 / 5 * level, timestamp), 'utf-8'))
     elif button_click_counter % 2 == 1:
         GPIO.output(19, GPIO.LOW)
         for level in range(5, -1, -1):
             timestamp = time.time() - initial_timestamp
             CPU_power = 0
-            s.sendall(bytes("DATA CPU_POWER %f %f\n" % (60 / 5 * level, timestamp), 'utf-8'))
+            s.sendall(bytes("DATA CPU_POWER %f %f\n" % (40 / 5 * level, timestamp), 'utf-8'))
 
 
 def set_resolution(sensorpath, resolution: int, persist: bool = False):
@@ -140,9 +140,9 @@ def calculate_control_parameters(temperatures_hot, temperature_heatsink, timesta
     if abs(temperatures_hot[1] - temperatures_hot[0]) / (timestamps[1] - timestamps[0]) > threshold and current_control_time > CONTROL_TIME_FAN:
         print("Temperature spikes detected")
         control_process_start = time.time()
-        fan_speed = 3000
+        fan_speed = 3100
     elif abs(temperatures_hot[1] - temperatures_hot[0]) / (timestamps[1] - timestamps[0]) < threshold:
-        fan_speed = 3000 * step / steps_number
+        fan_speed = 3100 * step / steps_number
 
     if current_control_time > CONTROL_TIME_FAN:
         control_process_start = 0
@@ -150,7 +150,7 @@ def calculate_control_parameters(temperatures_hot, temperature_heatsink, timesta
     if temperatures_hot[1] > T_CRITICAL:
         peltier_voltage = functions.U_static(Q_C0, temperatures_hot[1] + 273.15, temperature_heatsink + 273.15)
         # peltier_voltage = 12
-        fan_speed = 3000
+        fan_speed = 3100
         if peltier_voltage > 12:
             peltier_voltage = 12
         print(f"Updated peltier voltage: {peltier_voltage}")
@@ -161,8 +161,8 @@ def calculate_peltier_voltage(temperatures, timestamps, threshold, steps_number 
     global control_process_start
     step = temperatures[1] / 10
     if abs(temperatures[1] - temperatures[0]) / (timestamps[1] - timestamps[0]) > threshold:
-        return 3000
-    return 3000 * step / 10
+        return 3100
+    return 3100 * step / 10
 
 
 GPIO.setmode(GPIO.BOARD)
@@ -185,7 +185,7 @@ GPIO.setup(19, GPIO.OUT)
 GPIO.output(19, GPIO.HIGH)
 
 initial_button_state = GPIO.input(10)
-if initial_button_state == 1:
+if initial_button_state == 0:
     button_click_counter += 1
 
 # PWMs start
@@ -206,8 +206,8 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((IP, PORT))
     s.sendall(bytes("ADD_PLOT TEMPERATURE_CPU 20 60 9\n", 'utf-8'))
     s.sendall(bytes("ADD_PLOT TEMPERATURE_HEATSINK 20 60 9\n", 'utf-8'))
-    s.sendall(bytes("ADD_PLOT FAN_SPEED 0 3000 11\n", 'utf-8'))
-    s.sendall(bytes("ADD_PLOT CPU_POWER 0 60 2\n", 'utf-8'))
+    s.sendall(bytes("ADD_PLOT FAN_SPEED 0 3100 11\n", 'utf-8'))
+    s.sendall(bytes("ADD_PLOT CPU_POWER 0 60 7\n", 'utf-8'))
     initial_timestamp = time.time()
     GPIO.add_event_detect(10, GPIO.BOTH, callback=lambda channel: button_callback(channel, initial_timestamp), bouncetime=200) # Setup event on pin 10 rising edge
 
@@ -232,7 +232,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.sendall(bytes("DATA TEMPERATURE %f %f\n" % (temperature, timestamp), 'utf-8'))
         # Control fan and peltier
         fan_speed, peltier_voltage = calculate_control_parameters(temperatures_hot, temperature_heatsink, timestamps, CPU_power, 1) # 5 steps control from 20 to 100 degrees
-        fan_PWM.ChangeDutyCycle(fan_speed / 3000 * 100)
+        fan_PWM.ChangeDutyCycle(fan_speed / 3100 * 100)
         peltier_PWM.ChangeDutyCycle(peltier_voltage / 12 * 100)
         s.sendall(bytes("DATA FAN_SPEED %f %f\n" % (fan_speed, timestamp), 'utf-8'))
 
