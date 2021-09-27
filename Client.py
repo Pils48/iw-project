@@ -204,8 +204,8 @@ CPU_power = 0
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((IP, PORT))
-    s.sendall(bytes("ADD_PLOT TEMPERATURE_CPU 20 60 9\n", 'utf-8'))
-    s.sendall(bytes("ADD_PLOT TEMPERATURE_HEATSINK 20 60 9\n", 'utf-8'))
+    s.sendall(bytes("ADD_PLOT TEMPERATURE_CPU 20 40 5\n", 'utf-8'))
+    s.sendall(bytes("ADD_PLOT TEMPERATURE_HEATSINK 20 40 5\n", 'utf-8'))
     s.sendall(bytes("ADD_PLOT FAN_SPEED 0 3100 11\n", 'utf-8'))
     s.sendall(bytes("ADD_PLOT CPU_POWER 0 60 7\n", 'utf-8'))
     initial_timestamp = time.time()
