@@ -140,11 +140,11 @@ def calculate_control_parameters(temperatures_hot, temperature_cold, timestamps,
         return 3000, peltier_voltage
 
     if current_control_time > 10:
-        print("End of control process")
+        # print("End of control process")
         control_process_start = 0
     else:
-        print("Update peltier voltage")
         peltier_voltage = functions.U_static(CPU_power, temperatures_hot[1], temperature_cold)
+        print(f"Updated peltier voltage: {peltier_voltage}")
         if peltier_voltage > 12:
             peltier_voltage = 12
         return 3000, peltier_voltage
@@ -186,7 +186,7 @@ if initial_button_state == 1:
 fan_PWM.start(0)                      # Start PWM with 0% duty cycle
 peltier_PWM.start(10)
 
-temperatures_hot = [0, 0]
+temperatures_hot = [24, 0]
 temperature_cold = 0
 timestamps = [0, 0]
 control_process_start = 0
