@@ -1,5 +1,6 @@
 import numpy as np
 import socket
+import functions 
 import time
 import RPi.GPIO as GPIO
 import sys
@@ -72,19 +73,21 @@ def read_temperature(device, name):
 
 def button_callback(channel, initial_timestamp):
     print("Handling button interaption")
-    global button_click_counter
+    global button_click_counter, CPU_power
     button_click_counter += 1
     GPIO.setup(19, GPIO.OUT)
     if button_click_counter % 2 == 0:
         GPIO.output(19, GPIO.HIGH)
         for level in range(6):
             timestamp = time.time() - initial_timestamp
+            CPU_power = 60
             s.sendall(bytes("DATA CPU_POWER %f %f\n" % (60 / 5 * level, timestamp), 'utf-8'))
 #             time.sleep(0.003)
     elif button_click_counter % 2 == 1:
         GPIO.output(19, GPIO.LOW)
         for level in range(5, -1, -1):
             timestamp = time.time() - initial_timestamp
+            CPU_power = 0
             s.sendall(bytes("DATA CPU_POWER %f %f\n" % (60 / 5 * level, timestamp), 'utf-8'))
 #             time.sleep(0.003)
 
@@ -124,7 +127,32 @@ def get_resolution(sensor):
     print(data)
     
 
-def calculate_fan_speed(temperatures, timestamps, threshold, steps_number = 10):
+def calculate_control_parameters(temperatures_hot, temperature_cold, timestamps, CPU_power, threshold, steps_number = 10):
+    global control_process_start
+    step = temperatures_hot[1] / 10
+    current_control_time = time.time() - control_process_start
+    if abs(temperatures_hot[1] - temperatures_hot[0]) / (timestamps[1] - timestamps[0]) > threshold and current_control_time > 10:
+        print("Temperature spikes detected")
+        control_process_start = time.time()
+        peltier_voltage = functions.U_static(CPU_power, temperatures_hot[1], temperature_cold)
+        if peltier_voltage > 12:
+            peltier_voltage = 12
+        return 3000, peltier_voltage
+
+    if current_control_time > 10:
+        print("End of control process")
+        control_process_start = 0
+    else:
+        print("Update peltier voltage")
+        peltier_voltage = functions.U_static(CPU_power, temperatures_hot[1], temperature_cold)
+        if peltier_voltage > 12:
+            peltier_voltage = 12
+        return 3000, peltier_voltage
+    return 3000 * step / steps_number, 0
+
+
+def calculate_peltier_voltage(temperatures, timestamps, threshold, steps_number = 10):
+    global control_process_start
     step = temperatures[1] / 10
     if abs(temperatures[1] - temperatures[0]) / (timestamps[1] - timestamps[0]) > threshold:
         return 3000
@@ -158,8 +186,12 @@ if initial_button_state == 1:
 fan_PWM.start(0)                      # Start PWM with 0% duty cycle
 peltier_PWM.start(10)
 
-temperatures = [0, 0]
+temperatures_hot = [0, 0]
+temperature_cold = 0
 timestamps = [0, 0]
+control_process_start = 0
+
+CPU_power = 0
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
     s.connect((IP, PORT))
@@ -179,20 +211,22 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             temperature = read_temperature(devices[idx], "Thermometer_%d" % idx)
             if idx == 0:
                 # Temperature package
+                temperature_cold = temperature
                 print("TEMPERATURE_COLD value: %f" % (temperature))
                 s.sendall(bytes("DATA TEMPERATURE_COLD %f %f\n" % (temperature, timestamp), 'utf-8'))
             elif idx == 1:
-                temperatures[0], temperatures[1] = temperatures[1], temperature
+                temperatures_hot[0], temperatures_hot[1] = temperatures_hot[1], temperature
                 timestamps[0], timestamps[1] = timestamps[1], timestamp
-                print(temperatures)
-                print(timestamps)
-                # Control fan
-                fan_speed = calculate_fan_speed(temperatures, timestamps, 1) # 5 steps control from 20 to 100 degrees
-                fan_PWM.ChangeDutyCycle(fan_speed / 3000 * 100)
-                s.sendall(bytes("DATA FAN_SPEED %f %f\n" % (fan_speed, timestamp), 'utf-8'))
-                
+                # print(temperatures_hot)
+                # print(timestamps)
                 print("TEMPERATURE_HOT value: %f" % (temperature))
                 s.sendall(bytes("DATA TEMPERATURE_HOT %f %f\n" % (temperature, timestamp), 'utf-8'))
             else:
                 s.sendall(bytes("DATA TEMPERATURE %f %f\n" % (temperature, timestamp), 'utf-8'))
+        # Control fan and peltier
+        fan_speed, peltier_voltage = calculate_control_parameters(temperatures_hot, temperature_cold, timestamps, CPU_power, 1) # 5 steps control from 20 to 100 degrees
+        # peltier_voltage = calculate_peltier_voltage(temperatures, timestamps, 1)
+        fan_PWM.ChangeDutyCycle(fan_speed / 3000 * 100)
+        peltier_PWM.ChangeDutyCycle(peltier_voltage / 12 * 100)
+        s.sendall(bytes("DATA FAN_SPEED %f %f\n" % (fan_speed, timestamp), 'utf-8'))
 

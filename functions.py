@@ -61,3 +61,6 @@ def I_U(U, Th, Tc):
 
 def coolingPower(I, Th, Tc):
     return Qc0(I, Th) - (Th - Tc)*QdT_ang(I, Th)
+
+print(U_static(60, 273.15 + 60, 273.15 + 24))
+print(Tcrit(I_static(60, 273.15 + 60, 273.15 + 24), 273.15 + 60))
