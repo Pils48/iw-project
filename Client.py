@@ -12,6 +12,9 @@ DEVICE_FOLDER = "/sys/bus/w1/devices/"
 DEVICE_SUFFIX = "/w1_slave"
 WAIT_INTERVAL = 0.005
 
+T_CRITICAL = 50
+CONTROL_TIME = 30
+
 IP = '172.20.10.13'  # The server's hostname or IP address
 PORT = 65432        # The port used by the server
 
@@ -129,26 +132,26 @@ def get_resolution(sensor):
 
 def calculate_control_parameters(temperatures_hot, temperature_cold, timestamps, CPU_power, threshold, steps_number = 10):
     global control_process_start
-    step = temperatures_hot[1] / 10
+    step = temperatures_hot[1] // 10
+    fan_speed = 0
+    peltier_voltage = 0
     current_control_time = time.time() - control_process_start
-    if abs(temperatures_hot[1] - temperatures_hot[0]) / (timestamps[1] - timestamps[0]) > threshold and current_control_time > 10:
+    if abs(temperatures_hot[1] - temperatures_hot[0]) / (timestamps[1] - timestamps[0]) > threshold and current_control_time > CONTROL_TIME:
         print("Temperature spikes detected")
         control_process_start = time.time()
-        peltier_voltage = functions.U_static(CPU_power, temperatures_hot[1], temperature_cold)
-        if peltier_voltage > 12:
-            peltier_voltage = 12
-        return 3000, peltier_voltage
+        fan_speed = 3000
+    elif abs(temperatures_hot[1] - temperatures_hot[0]) / (timestamps[1] - timestamps[0]) < threshold:
+        fan_speed = 3000 * step / steps_number
 
-    if current_control_time > 10:
-        # print("End of control process")
+    if current_control_time > CONTROL_TIME:
         control_process_start = 0
     else:
-        peltier_voltage = functions.U_static(CPU_power, temperatures_hot[1], temperature_cold)
+        if temperatures_hot[1] > T_CRITICAL:
+            peltier_voltage = functions.U_static(CPU_power, temperatures_hot[1], temperature_cold)
+            if peltier_voltage > 12:
+                peltier_voltage = 12
         print(f"Updated peltier voltage: {peltier_voltage}")
-        if peltier_voltage > 12:
-            peltier_voltage = 12
-        return 3000, peltier_voltage
-    return 3000 * step / steps_number, 0
+    return fan_speed, peltier_voltage
 
 
 def calculate_peltier_voltage(temperatures, timestamps, threshold, steps_number = 10):
@@ -217,15 +220,12 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             elif idx == 1:
                 temperatures_hot[0], temperatures_hot[1] = temperatures_hot[1], temperature
                 timestamps[0], timestamps[1] = timestamps[1], timestamp
-                # print(temperatures_hot)
-                # print(timestamps)
                 print("TEMPERATURE_HOT value: %f" % (temperature))
                 s.sendall(bytes("DATA TEMPERATURE_HOT %f %f\n" % (temperature, timestamp), 'utf-8'))
             else:
                 s.sendall(bytes("DATA TEMPERATURE %f %f\n" % (temperature, timestamp), 'utf-8'))
         # Control fan and peltier
         fan_speed, peltier_voltage = calculate_control_parameters(temperatures_hot, temperature_cold, timestamps, CPU_power, 1) # 5 steps control from 20 to 100 degrees
-        # peltier_voltage = calculate_peltier_voltage(temperatures, timestamps, 1)
         fan_PWM.ChangeDutyCycle(fan_speed / 3000 * 100)
         peltier_PWM.ChangeDutyCycle(peltier_voltage / 12 * 100)
         s.sendall(bytes("DATA FAN_SPEED %f %f\n" % (fan_speed, timestamp), 'utf-8'))
