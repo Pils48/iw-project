@@ -146,7 +146,8 @@ def calculate_control_parameters(temperatures_hot, temperature_heatsink, timesta
         control_process_start = 0
 
     if temperatures_hot[1] > T_CRITICAL:
-        peltier_voltage = functions.U_static(CPU_power, temperatures_hot[1] + 273.15, temperature_heatsink + 273.15)
+        # peltier_voltage = functions.U_static(20, temperatures_hot[1] + 273.15, temperature_heatsink + 273.15)
+        peltier_voltage = 12
         fan_speed = 3000
         if peltier_voltage > 12:
             peltier_voltage = 12
@@ -171,7 +172,7 @@ fan_PWM = GPIO.PWM(12, 25000)
 
 # Button setup
 GPIO.setwarnings(False) # Ignore warning for now
-GPIO.setup(10, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) # Set pin 10 to be an input pin and set initial value to be pulled low (off)
+GPIO.setup(10, GPIO.IN, pull_up_down=GPIO.PUD_UP) # Set pin 10 to be an input pin and set initial value to be pulled low (off)
 
 # Peltier setup
 GPIO.setup(15, GPIO.OUT)
